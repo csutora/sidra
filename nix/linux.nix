@@ -6,6 +6,8 @@
   buildFHSEnv,
   bintools,
   xz,
+  asar,
+  typescript,
 
   # Runtime dependencies provided inside the FHS environment
   alsa-lib,
@@ -65,13 +67,49 @@ let
 
   src = fetchurl sources.${stdenv.hostPlatform.system};
 
-  # Unpack the deb without patching it. The CastLabs Electron binary is
-  # VMP-signed for Widevine DRM, so a modification invalidates the signature.
+  # Type checking needs the full npm tree, including the CastLabs Electron git
+  # dependency, so this build only emits. Run the type check and tests before pushing.
+  app = stdenvNoCC.mkDerivation {
+    pname = "${pname}-app";
+    inherit version;
+
+    src = lib.fileset.toSource {
+      root = ../.;
+      fileset = lib.fileset.unions [
+        ../assets
+        ../src
+        ../tsconfig.json
+      ];
+    };
+
+    nativeBuildInputs = [ typescript ];
+
+    buildPhase = ''
+      runHook preBuild
+      tsc -p tsconfig.json --noCheck
+      runHook postBuild
+    '';
+
+    installPhase = ''
+      runHook preInstall
+      mkdir -p $out
+      cp -a dist assets $out/
+      rm -rf $out/assets/source
+      runHook postInstall
+    '';
+  };
+
+  asarUnpack = (lib.importJSON ../package.json).build.asarUnpack;
+
+  # Unpack the deb without patching the CastLabs Electron binary, which is
+  # VMP-signed for Widevine DRM, and rebuild only app.asar from this tree. The
+  # release keeps its node_modules, package.json and Last.fm credentials.
   unpacked = stdenvNoCC.mkDerivation {
     pname = "${pname}-unpacked";
     inherit version src;
 
     nativeBuildInputs = [
+      asar
       bintools # ar
       xz
     ];
@@ -93,6 +131,17 @@ let
       mkdir -p $out
       cp -a opt/Sidra $out/opt
       cp -a usr/share $out/share
+
+      resources=$out/opt/resources
+      asar extract $resources/app.asar app
+      cp app/assets/lastfm-credentials.json lastfm-credentials.json
+      rm -rf app/dist app/assets $resources/app.asar $resources/app.asar.unpacked
+      cp -a ${app}/dist ${app}/assets app/
+      chmod -R u+w app
+      cp lastfm-credentials.json app/assets/lastfm-credentials.json
+      # asar matches the unpack glob against absolute paths.
+      asar pack "$PWD/app" $resources/app.asar \
+        --unpack "{${lib.concatMapStringsSep "," (p: "$PWD/app/${p}") asarUnpack}}"
 
       # Fix the desktop file to point at the wrapper (will be set by FHS env)
       substituteInPlace $out/share/applications/sidra.desktop \
@@ -168,7 +217,10 @@ let
         "x86_64-linux"
         "aarch64-linux"
       ];
-      sourceProvenance = with lib.sourceTypes; [ binaryNativeCode ];
+      sourceProvenance = with lib.sourceTypes; [
+        binaryNativeCode
+        fromSource
+      ];
       mainProgram = "sidra";
     };
   };
