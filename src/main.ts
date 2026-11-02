@@ -39,6 +39,7 @@ import {
   switchService,
 } from "./serviceSwitch";
 import { initThemeCSS, injectThemeCss, setThemeChangedCallback } from "./theme";
+import { initCustomCss, injectCustomCss } from "./customCss";
 import {
   createTray,
   getMenuIcon,
@@ -752,6 +753,7 @@ function setupContentHandlers(
     await win.webContents.insertCSS(assets.STYLE_FIX_CSS);
     mainLog.debug("CSS fixes injected");
     await injectThemeCss(win.webContents);
+    await injectCustomCss(win.webContents);
     await injectRendererScripts(win, assets, "on load");
   }
 
@@ -911,6 +913,7 @@ if (gotLock) {
       });
       setupWindowZoomAndNav(win);
       initThemeCSS(win);
+      initCustomCss(win);
       setupSplashTransition(win, splash, minDisplay, cssReady, winReady);
       setupSessionHeaders(ses);
       setupContentHandlers(win, player, markCssReady, assets);
