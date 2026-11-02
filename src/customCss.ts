@@ -135,7 +135,7 @@ export function initCustomCss(win: BrowserWindow): void {
     customCssLog.warn("Failed to initialise custom.css watcher", error);
   }
 
-  app.on("will-quit", () => {
+  win.on("closed", () => {
     if (timer) {
       clearTimeout(timer);
       timer = null;
